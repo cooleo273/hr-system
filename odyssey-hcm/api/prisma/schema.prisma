@@ -1,0 +1,714 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Core Models
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  domain      String   @unique
+  settings    Json?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  employees   Employee[]
+  departments Department[]
+  positions   Position[]
+  
+  @@map("tenants")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  name        String
+  description String?
+  parent_id   String?
+  manager_id  String?
+  budget      Decimal?
+  cost_center String?
+  location    String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  parent      Department?  @relation("DepartmentHierarchy", fields: [parent_id], references: [id])
+  children    Department[] @relation("DepartmentHierarchy")
+  manager     Employee?    @relation("DepartmentManager", fields: [manager_id], references: [id])
+  employees   Employee[]
+  positions   Position[]
+
+  @@map("departments")
+}
+
+model Position {
+  id              String   @id @default(cuid())
+  tenant_id       String
+  title           String
+  department_id   String
+  level           String?
+  description     String?
+  responsibilities String[]
+  requirements     String[]
+  salary_min      Decimal?
+  salary_max      Decimal?
+  currency        String   @default("USD")
+  location        String?
+  employment_type String   @default("full_time")
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  tenant         Tenant           @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  department     Department       @relation(fields: [department_id], references: [id])
+  employees      Employee[]
+  job_postings   JobPosting[]
+  succession_plans SuccessionPlan[]
+
+  @@map("positions")
+}
+
+model Employee {
+  id                  String    @id @default(cuid())
+  tenant_id           String
+  employee_number     String    @unique
+  first_name          String
+  last_name           String
+  middle_name         String?
+  email               String    @unique
+  phone               String?
+  date_of_birth       DateTime?
+  national_id         String?
+  passport_number     String?
+  address             Json?
+  emergency_contact   Json?
+  department_id       String
+  position_id         String
+  manager_id          String?
+  hire_date           DateTime
+  termination_date    DateTime?
+  employment_type     String    @default("full_time")
+  employment_status   String    @default("active")
+  salary              Decimal?
+  currency            String    @default("USD")
+  benefits            Json?
+  work_location       String?
+  time_zone           String?
+  profile_picture     String?
+  is_active           Boolean   @default(true)
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  tenant                Tenant     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  department            Department @relation(fields: [department_id], references: [id])
+  position              Position   @relation(fields: [position_id], references: [id])
+  manager               Employee?  @relation("ManagerSubordinate", fields: [manager_id], references: [id])
+  direct_reports        Employee[] @relation("ManagerSubordinate")
+  
+  // Department manager relation
+  managed_departments   Department[] @relation("DepartmentManager")
+  
+  // Leave Management
+  leave_requests        LeaveRequest[]
+  leave_balances        LeaveBalance[]
+  leave_approvals       LeaveRequest[] @relation("LeaveApprover")
+  
+  // Recruitment
+  job_requisitions      JobRequisition[]
+  applications          Application[]
+  interviews_as_interviewer Interview[] @relation("Interviewer")
+  interviews_as_candidate   Interview[] @relation("Candidate")
+  offers                Offer[]
+  
+  // Performance Management
+  performance_reviews_as_employee PerformanceReview[] @relation("PerformanceReviewEmployee")
+  performance_reviews_as_reviewer PerformanceReview[] @relation("PerformanceReviewReviewer")
+  goals_as_employee     Goal[]       @relation("GoalEmployee")
+  goals_as_manager      Goal[]       @relation("GoalManager")
+  feedback_given        Feedback[]   @relation("FeedbackFrom")
+  feedback_received     Feedback[]   @relation("FeedbackTo")
+  feedback_requests_made    FeedbackRequest[] @relation("FeedbackRequester")
+  feedback_requests_received FeedbackRequest[] @relation("FeedbackRequestee")
+  goal_progress_updates GoalProgressUpdate[]
+  competency_assessments EmployeeCompetencyAssessment[]
+  competency_assessors  EmployeeCompetencyAssessment[] @relation("CompetencyAssessor")
+  succession_candidates SuccessionCandidate[]
+  succession_current_positions SuccessionPlan[] @relation("SuccessionCurrentEmployee")
+  
+  // Audit logs
+  audit_logs            AuditLog[]
+
+  @@map("employees")
+}
+
+// Leave Management Models
+model LeavePolicy {
+  id                    String   @id @default(cuid())
+  tenant_id             String
+  name                  String
+  type                  String // annual, sick, maternity, paternity, etc.
+  description           String?
+  accrual_rate          Decimal  // days per month/year
+  accrual_frequency     String   // monthly, yearly, daily
+  max_balance           Decimal?
+  carryover_limit       Decimal?
+  carryover_expiry_days Int?
+  min_notice_days       Int      @default(0)
+  max_consecutive_days  Int?
+  requires_approval     Boolean  @default(true)
+  approval_levels       Int      @default(1)
+  is_active             Boolean  @default(true)
+  effective_from        DateTime
+  effective_to          DateTime?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  leave_balances        LeaveBalance[]
+  leave_requests        LeaveRequest[]
+
+  @@map("leave_policies")
+}
+
+model LeaveBalance {
+  id               String      @id @default(cuid())
+  employee_id      String
+  leave_policy_id  String
+  total_allocated  Decimal
+  used_balance     Decimal     @default(0)
+  pending_balance  Decimal     @default(0)
+  available_balance Decimal
+  carryover_balance Decimal    @default(0)
+  year             Int
+  created_at       DateTime    @default(now())
+  updated_at       DateTime    @updatedAt
+
+  employee         Employee    @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  leave_policy     LeavePolicy @relation(fields: [leave_policy_id], references: [id])
+
+  @@unique([employee_id, leave_policy_id, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id                String     @id @default(cuid())
+  employee_id       String
+  leave_policy_id   String
+  request_number    String     @unique
+  start_date        DateTime
+  end_date          DateTime
+  days_requested    Decimal
+  reason            String
+  notes             String?
+  status            String     @default("pending") // pending, approved, rejected, cancelled
+  applied_at        DateTime   @default(now())
+  approved_by       String?
+  approved_at       DateTime?
+  rejected_reason   String?
+  attachments       String[]   @default([])
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+
+  employee          Employee    @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  leave_policy      LeavePolicy @relation(fields: [leave_policy_id], references: [id])
+  approver          Employee?   @relation("LeaveApprover", fields: [approved_by], references: [id])
+
+  @@map("leave_requests")
+}
+
+// Recruitment Models
+model JobRequisition {
+  id                    String     @id @default(cuid())
+  tenant_id             String
+  requisition_number    String     @unique
+  title                 String
+  department_id         String
+  position_id           String?
+  hiring_manager_id     String
+  headcount             Int        @default(1)
+  employment_type       String     @default("full_time")
+  location              String?
+  salary_min            Decimal?
+  salary_max            Decimal?
+  currency              String     @default("USD")
+  urgency               String     @default("medium") // low, medium, high, critical
+  reason_for_hire       String
+  job_description       String
+  requirements          String[]   @default([])
+  preferred_skills      String[]   @default([])
+  benefits              String[]   @default([])
+  status                String     @default("draft") // draft, pending_approval, approved, rejected, filled, cancelled
+  approved_by           String?
+  approved_at           DateTime?
+  rejection_reason      String?
+  budget_allocated      Decimal?
+  target_start_date     DateTime?
+  created_at            DateTime   @default(now())
+  updated_at            DateTime   @updatedAt
+
+  hiring_manager        Employee   @relation(fields: [hiring_manager_id], references: [id])
+  job_postings          JobPosting[]
+
+  @@map("job_requisitions")
+}
+
+model JobPosting {
+  id                   String         @id @default(cuid())
+  tenant_id            String
+  job_requisition_id   String
+  posting_number       String         @unique
+  title                String
+  slug                 String         @unique
+  description          String
+  requirements         String[]       @default([])
+  preferred_skills     String[]       @default([])
+  benefits             String[]       @default([])
+  location             String?
+  employment_type      String         @default("full_time")
+  experience_level     String?
+  salary_display       String?        // "competitive", "60k-80k", "DOE"
+  application_deadline DateTime?
+  external_job_boards  String[]       @default([])
+  status               String         @default("draft") // draft, published, paused, closed
+  published_at         DateTime?
+  closed_at            DateTime?
+  view_count           Int            @default(0)
+  application_count    Int            @default(0)
+  seo_title            String?
+  seo_description      String?
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @updatedAt
+
+  job_requisition      JobRequisition @relation(fields: [job_requisition_id], references: [id], onDelete: Cascade)
+  position             Position?      @relation(fields: [position_id], references: [id])
+  position_id          String?
+  applications         Application[]
+
+  @@map("job_postings")
+}
+
+model Candidate {
+  id                    String        @id @default(cuid())
+  tenant_id             String
+  candidate_number      String        @unique
+  first_name            String
+  last_name             String
+  email                 String
+  phone                 String?
+  current_location      String?
+  linkedin_profile      String?
+  portfolio_url         String?
+  current_company       String?
+  current_position      String?
+  years_of_experience   Int?
+  expected_salary       Decimal?
+  currency              String        @default("USD")
+  availability_date     DateTime?
+  work_authorization    String?       // citizen, permanent_resident, visa_required, etc.
+  willing_to_relocate   Boolean       @default(false)
+  skills                String[]      @default([])
+  education             Json?
+  certifications        Json?
+  languages             Json?
+  resume_url            String?
+  cover_letter          String?
+  source                String?       // website, referral, linkedin, etc.
+  notes                 String?
+  gdpr_consent          Boolean       @default(false)
+  communication_consent Boolean       @default(true)
+  created_at            DateTime      @default(now())
+  updated_at            DateTime      @updatedAt
+
+  employee              Employee?     @relation(fields: [employee_id], references: [id])
+  employee_id           String?
+  applications          Application[]
+
+  @@unique([tenant_id, email])
+  @@map("candidates")
+}
+
+model Application {
+  id                  String     @id @default(cuid())
+  tenant_id           String
+  job_posting_id      String
+  candidate_id        String
+  application_number  String     @unique
+  stage               String     @default("applied") // applied, screening, interview, offer, hired, rejected
+  status              String     @default("active") // active, withdrawn, rejected, hired
+  source              String?
+  applied_at          DateTime   @default(now())
+  questionnaire_responses Json?
+  screening_notes     String?
+  rejection_reason    String?
+  rejected_at         DateTime?
+  hired_at            DateTime?
+  attachments         String[]   @default([])
+  created_at          DateTime   @default(now())
+  updated_at          DateTime   @updatedAt
+
+  job_posting         JobPosting @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
+  candidate           Candidate  @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  interviews          Interview[]
+  offers              Offer[]
+
+  @@unique([job_posting_id, candidate_id])
+  @@map("applications")
+}
+
+model Interview {
+  id                  String      @id @default(cuid())
+  tenant_id           String
+  application_id      String
+  interviewer_id      String
+  candidate_id        String
+  type                String      // phone, video, technical, onsite, panel
+  title               String
+  description         String?
+  scheduled_at        DateTime
+  duration_minutes    Int         @default(60)
+  location            String?     // office, video_link, phone
+  meeting_link        String?
+  status              String      @default("scheduled") // scheduled, completed, cancelled, no_show
+  feedback            String?
+  rating              Int?        // 1-5
+  recommendation      String?     // strong_hire, hire, no_hire, strong_no_hire
+  notes               String?
+  completed_at        DateTime?
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+
+  application         Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  interviewer         Employee    @relation("Interviewer", fields: [interviewer_id], references: [id])
+  candidate           Employee    @relation("Candidate", fields: [candidate_id], references: [id])
+
+  @@map("interviews")
+}
+
+model Offer {
+  id                    String      @id @default(cuid())
+  tenant_id             String
+  application_id        String
+  employee_id           String      // The hired employee
+  offer_number          String      @unique
+  position_title        String
+  department            String
+  base_salary           Decimal
+  currency              String      @default("USD")
+  bonus                 Decimal?
+  equity                String?     // e.g., "1000 shares", "0.1%"
+  benefits_package      Json?
+  start_date            DateTime
+  employment_type       String      @default("full_time")
+  probation_period      Int?        // months
+  notice_period         Int?        // days
+  status                String      @default("draft") // draft, pending_approval, approved, sent, accepted, declined, expired
+  sent_at               DateTime?
+  accepted_at           DateTime?
+  declined_at           DateTime?
+  expiry_date           DateTime?
+  decline_reason        String?
+  offer_letter_url      String?
+  contract_url          String?
+  approval_workflow     Json?
+  created_at            DateTime    @default(now())
+  updated_at            DateTime    @updatedAt
+
+  application           Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  employee              Employee    @relation(fields: [employee_id], references: [id])
+
+  @@map("offers")
+}
+
+// Performance Management Models
+model PerformanceReview {
+  id                        String     @id @default(cuid())
+  tenant_id                 String
+  employee_id               String
+  reviewer_id               String
+  review_number             String     @unique
+  review_period_start       DateTime
+  review_period_end         DateTime
+  review_type               String     // annual, quarterly, project_based, probationary, 360_degree
+  status                    String     @default("draft") // draft, in_progress, pending_manager, pending_employee, pending_hr, completed, cancelled
+  self_assessment_deadline  DateTime?
+  manager_review_deadline   DateTime?
+  final_meeting_date        DateTime?
+  overall_rating            Int?       // 1-5 scale
+  goals_achievement_rating  Int?       // 1-5 scale
+  competencies_rating       Int?       // 1-5 scale
+  development_areas         String[]   @default([])
+  achievements              String[]   @default([])
+  manager_comments          String?
+  employee_comments         String?
+  hr_comments               String?
+  next_review_date          DateTime?
+  created_at                DateTime   @default(now())
+  updated_at                DateTime   @updatedAt
+
+  employee                  Employee   @relation("PerformanceReviewEmployee", fields: [employee_id], references: [id], onDelete: Cascade)
+  reviewer                  Employee   @relation("PerformanceReviewReviewer", fields: [reviewer_id], references: [id])
+  responses                 ReviewResponse[]
+
+  @@map("performance_reviews")
+}
+
+model ReviewTemplate {
+  id             String           @id @default(cuid())
+  tenant_id      String
+  name           String
+  description    String?
+  review_type    String
+  is_active      Boolean          @default(true)
+  created_at     DateTime         @default(now())
+  updated_at     DateTime         @updatedAt
+
+  questions      ReviewQuestion[]
+
+  @@map("review_templates")
+}
+
+model ReviewQuestion {
+  id                 String           @id @default(cuid())
+  review_template_id String
+  question_text      String
+  question_type      String           // text, rating, multiple_choice, boolean
+  is_required        Boolean          @default(false)
+  weight             Int              @default(0)
+  options            String[]         @default([])
+  section            String?
+  order_index        Int              @default(0)
+  created_at         DateTime         @default(now())
+
+  review_template    ReviewTemplate   @relation(fields: [review_template_id], references: [id], onDelete: Cascade)
+  responses          ReviewResponse[]
+
+  @@map("review_questions")
+}
+
+model ReviewResponse {
+  id                 String             @id @default(cuid())
+  review_id          String
+  question_id        String
+  response_text      String?
+  response_rating    Int?               // 1-5
+  response_boolean   Boolean?
+  response_choice    String?
+  created_at         DateTime           @default(now())
+
+  review             PerformanceReview  @relation(fields: [review_id], references: [id], onDelete: Cascade)
+  question           ReviewQuestion     @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@unique([review_id, question_id])
+  @@map("review_responses")
+}
+
+model Goal {
+  id                    String               @id @default(cuid())
+  tenant_id             String
+  title                 String
+  description           String?
+  employee_id           String
+  manager_id            String?
+  parent_goal_id        String?
+  category              String               // company, department, team, individual, development, performance
+  status                String               @default("draft") // draft, active, completed, cancelled, on_hold
+  priority              String               @default("medium") // low, medium, high, critical
+  target_date           DateTime
+  start_date            DateTime
+  completion_date       DateTime?
+  progress_percentage   Int                  @default(0)
+  is_stretch_goal       Boolean              @default(false)
+  alignment_notes       String?
+  success_criteria      String[]             @default([])
+  tags                  String[]             @default([])
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+
+  employee              Employee             @relation("GoalEmployee", fields: [employee_id], references: [id], onDelete: Cascade)
+  manager               Employee?            @relation("GoalManager", fields: [manager_id], references: [id])
+  parent_goal           Goal?                @relation("GoalHierarchy", fields: [parent_goal_id], references: [id])
+  child_goals           Goal[]               @relation("GoalHierarchy")
+  key_results           KeyResult[]
+  progress_updates      GoalProgressUpdate[]
+  feedback              Feedback[]
+
+  @@map("goals")
+}
+
+model KeyResult {
+  id             String   @id @default(cuid())
+  goal_id        String
+  title          String
+  description    String?
+  target_value   Decimal
+  current_value  Decimal  @default(0)
+  unit           String?
+  is_binary      Boolean  @default(false)
+  weight         Int      @default(100) // percentage weight within the goal
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  goal           Goal     @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+
+  @@map("key_results")
+}
+
+model GoalProgressUpdate {
+  id                 String   @id @default(cuid())
+  goal_id            String
+  updated_by         String
+  previous_progress  Int
+  new_progress       Int
+  update_notes       String?
+  attachments        String[] @default([])
+  created_at         DateTime @default(now())
+
+  goal               Goal     @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+  updated_by_user    Employee @relation(fields: [updated_by], references: [id])
+
+  @@map("goal_progress_updates")
+}
+
+model Feedback {
+  id                 String   @id @default(cuid())
+  tenant_id          String
+  from_employee_id   String
+  to_employee_id     String
+  feedback_type      String   // appreciation, constructive, coaching, development, project_feedback
+  subject            String
+  content            String
+  is_anonymous       Boolean  @default(false)
+  is_private         Boolean  @default(false)
+  tags               String[] @default([])
+  project_id         String?
+  goal_id            String?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  from_employee      Employee @relation("FeedbackFrom", fields: [from_employee_id], references: [id], onDelete: Cascade)
+  to_employee        Employee @relation("FeedbackTo", fields: [to_employee_id], references: [id], onDelete: Cascade)
+  goal               Goal?    @relation(fields: [goal_id], references: [id])
+
+  @@map("feedback")
+}
+
+model FeedbackRequest {
+  id                  String    @id @default(cuid())
+  tenant_id           String
+  requester_id        String
+  requested_from_id   String
+  subject             String
+  description         String?
+  feedback_areas      String[]  @default([])
+  deadline            DateTime?
+  is_completed        Boolean   @default(false)
+  completed_at        DateTime?
+  created_at          DateTime  @default(now())
+
+  requester           Employee  @relation("FeedbackRequester", fields: [requester_id], references: [id], onDelete: Cascade)
+  requested_from      Employee  @relation("FeedbackRequestee", fields: [requested_from_id], references: [id], onDelete: Cascade)
+
+  @@map("feedback_requests")
+}
+
+model SuccessionPlan {
+  id                      String                @id @default(cuid())
+  tenant_id               String
+  position_id             String
+  current_employee_id     String?
+  is_critical_role        Boolean               @default(false)
+  risk_level              String                @default("medium") // low, medium, high, critical
+  succession_timeline     String?
+  required_competencies   String[]              @default([])
+  development_requirements String[]             @default([])
+  created_at              DateTime              @default(now())
+  updated_at              DateTime              @updatedAt
+
+  position                Position              @relation(fields: [position_id], references: [id], onDelete: Cascade)
+  current_employee        Employee?             @relation("SuccessionCurrentEmployee", fields: [current_employee_id], references: [id])
+  candidates              SuccessionCandidate[]
+
+  @@map("succession_plans")
+}
+
+model SuccessionCandidate {
+  id                    String         @id @default(cuid())
+  succession_plan_id    String
+  employee_id           String
+  readiness_level       String         // ready_now, ready_1_2_years, ready_2_3_years, ready_3_plus_years, not_ready
+  talent_rating         String         // top_talent, high_performer, solid_performer, developing, underperforming
+  development_plan      String?
+  competency_gaps       String[]       @default([])
+  development_goals     String[]       @default([])
+  last_assessment_date  DateTime?
+  notes                 String?
+  created_at            DateTime       @default(now())
+  updated_at            DateTime       @updatedAt
+
+  succession_plan       SuccessionPlan @relation(fields: [succession_plan_id], references: [id], onDelete: Cascade)
+  employee              Employee       @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+
+  @@unique([succession_plan_id, employee_id])
+  @@map("succession_candidates")
+}
+
+model Competency {
+  id                   String                          @id @default(cuid())
+  tenant_id            String
+  name                 String
+  description          String?
+  category             String?
+  is_core              Boolean                         @default(false)
+  proficiency_levels   Json                           @default("[]") // Array of {level, name, description}
+  created_at           DateTime                        @default(now())
+
+  assessments          EmployeeCompetencyAssessment[]
+
+  @@map("competencies")
+}
+
+model EmployeeCompetencyAssessment {
+  id              String     @id @default(cuid())
+  employee_id     String
+  competency_id   String
+  current_level   Int        // 1-5 scale
+  target_level    Int?       // 1-5 scale
+  assessed_by     String
+  assessment_date DateTime
+  notes           String?
+  evidence        String[]   @default([])
+  created_at      DateTime   @default(now())
+
+  employee        Employee   @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  competency      Competency @relation(fields: [competency_id], references: [id], onDelete: Cascade)
+  assessed_by_user Employee  @relation("CompetencyAssessor", fields: [assessed_by], references: [id])
+
+  @@unique([employee_id, competency_id, assessment_date])
+  @@map("employee_competency_assessments")
+}
+
+// System Models
+model AuditLog {
+  id           String   @id @default(cuid())
+  tenant_id    String?
+  entity_type  String   // table name
+  entity_id    String   // record id
+  action       String   // create, update, delete
+  old_values   Json?
+  new_values   Json?
+  performed_by String
+  performed_at DateTime @default(now())
+
+  user         Employee @relation(fields: [performed_by], references: [id])
+
+  @@map("audit_logs")
+}
